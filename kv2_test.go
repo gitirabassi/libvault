@@ -4,6 +4,8 @@ import (
 	"log"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+
 	"github.com/gitirabassi/libvault"
 )
 
@@ -14,11 +16,11 @@ type User struct {
 	PrivateKey string `mapstructure:"private_key"`
 }
 
-func TestingKv2(t *testing.T) {
+func TestKv2(t *testing.T) {
 	cli, err := libvault.NewClient()
 	if err != nil {
 		log.Println(err)
-		t.Fail()
+		t.FailNow()
 	}
 	input := &User{
 		Nickname:   "gitirabassi",
@@ -29,16 +31,13 @@ func TestingKv2(t *testing.T) {
 	err = cli.KV2("secret").Put("users/giacomo", input)
 	if err != nil {
 		log.Println(err)
-		t.Fail()
+		t.FailNow()
 	}
 	receving := &User{}
 	err = cli.KV2("secret").Get("users/giacomo", receving)
 	if err != nil {
 		log.Println(err)
-		t.Fail()
+		t.FailNow()
 	}
-	if *input != *receving {
-		log.Println("Data put in is different than the one that we got out")
-		t.Fail()
-	}
+	assert.Equal(t, input, receving)
 }

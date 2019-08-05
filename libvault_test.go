@@ -30,7 +30,7 @@ func TestMain(m *testing.M) {
 	}
 
 	os.Setenv("VAULT_ADDR", fmt.Sprintf("http://127.0.0.1:%v", resource.GetPort("8200/tcp")))
-	os.Setenv("VAULT_TOKEN", "secret")
+	os.Setenv("VAULT_TOKEN", vaultToken)
 	defer os.Unsetenv("VAULT_ADDR")
 	defer os.Unsetenv("VAULT_TOKEN")
 	// exponential backoff-retry, because the application in the container might not be ready to accept connections yet

@@ -42,45 +42,14 @@ func UnmarshalSecret(secret *api.Secret, output interface{}, kv2style bool) erro
 	return unmarshalSecret(secret, output, kv2style)
 }
 
-// NewSecretBackend is safe and idempotent way of creating a secret backend if it doesn't already exist
-// func (c *Client) NewSecretBackend(path, backendType string) error {
-// 	mounts, err := cli.Sys().ListMounts()
-// 	if err != nil {
-// 		return err
-// 	}
-// 	v, ok := mounts[fmt.Sprintf("%s/", path)]
-// 	if ok {
-// 		fmt.Printf("%s/ already exist as a backend... returning\n")
-// 		return nil
-// 	}
-// 	//TODO: Create switch to make this more specific for the type of backend being created
-// 	mountOptions := &api.MountInput{
-// 		Type:        backendType,
-// 		Description: "Backend created with libvault",
-// 		SealWrap:    false,
-// 		Local:       false,
-// 		// Options:     map[string]string{
-// 		// 	"versin": "1",o
-// 		// },
-// 		Config: api.MountConfigInput{
-// 			DefaultLeaseTTL: "0",
-// 			MaxLeaseTTL:     "0",
-// 			ForceNoCache:    false,
-// 		},
-// 	}
-
-// 	err = cli.Sys().Mount(path, mountOptions)
-// 	if err != nil {
-// 		return err
-// 	}
-// 	return nil
-// }
-
 func (c *Client) writeOp(path string, input, output interface{}, kv2style bool) error {
 	rawIn, err := marshalSecret(input, kv2style)
 	rawOut, err := c.client.Logical().Write(path, rawIn)
 	if err != nil {
 		return err
+	}
+	if output == nil {
+		return nil
 	}
 	return unmarshalSecret(rawOut, output, false)
 }
@@ -98,6 +67,7 @@ func (c *Client) deleteOp(path string) error {
 	return err
 }
 
+// ListOutput represent the kind of secret you get after a list operation
 type ListOutput struct {
 	Keys []string `mapstructure:"keys"`
 }
