@@ -28,13 +28,23 @@ func TestKv2(t *testing.T) {
 		Email:      "giacomo@tirabassi.eu",
 		PrivateKey: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
 	}
-	err = cli.KV2("secret").Put("users/giacomo", input)
+	kvEngine, err := cli.KV("secret", true, true)
+	if err != nil {
+		log.Println(err)
+		t.FailNow()
+	}
+	kvEngine2, err := cli.KV("secret", true, true)
+	if err != nil {
+		log.Println(err)
+		t.FailNow()
+	}
+	err = kvEngine.Put("users/giacomo", input)
 	if err != nil {
 		log.Println(err)
 		t.FailNow()
 	}
 	receving := &User{}
-	err = cli.KV2("secret").Get("users/giacomo", receving)
+	err = kvEngine2.Get("users/giacomo", receving)
 	if err != nil {
 		log.Println(err)
 		t.FailNow()

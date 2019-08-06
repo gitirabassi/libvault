@@ -25,4 +25,4 @@ Easy things should be easy
 
 ## Running vault locally
 
-`docker run --rm -p8200:8200 vault:1.2.0-beta2 server -dev -dev-root-token-id=root`
+`docker run --rm -p8200:8200 vault:1.2.0 server -dev -dev-root-token-id=root`

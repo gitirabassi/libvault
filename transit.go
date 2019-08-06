@@ -15,6 +15,7 @@ type Transit struct {
 	c       *Client
 	path    string
 	keyName string
+	keyType string
 }
 
 // Key is how a new key is created/configured/exported in vault
@@ -44,15 +45,18 @@ type KeySpec struct {
 }
 
 // Transit makes the user enter in the Transit space
-func (c *Client) Transit(path, keyName string) (*Transit, error) {
-	//TODO: check if it already exist
-	err := c.client.Sys().Mount(path, &api.MountInput{
+func (c *Client) Transit(path, keyName string, createIfDoesntExist bool) (*Transit, error) {
+	mountOptions := &api.MountInput{
 		Type:        "transit",
-		Description: "created with libvault",
-	})
+		Description: defaultMountDescription,
+	}
+	err := c.mount(path, mountOptions, createIfDoesntExist)
 	if err != nil {
 		return nil, err
 	}
+
+	// Key Creation
+	//TODO: check if the key already exist
 	keyPath := filepath.Join(path, "keys", keyName)
 	keyInput := &Key{
 		//TODO: being able to change this
@@ -62,15 +66,22 @@ func (c *Client) Transit(path, keyName string) (*Transit, error) {
 	if err != nil {
 		return nil, err
 	}
-	err = c.readOp(keyPath, nil, false)
+	output := &Key{}
+	err = c.readOp(keyPath, output, false)
 	if err != nil {
 		return nil, err
 	}
 	return &Transit{
 		c:       c,
 		path:    path,
-		keyName: keyName,
+		keyName: output.Name,
+		keyType: output.Type,
 	}, nil
+}
+
+// KeyType returns the type of the key used
+func (t *Transit) KeyType() string {
+	return t.keyType
 }
 
 // GetPublicKey obtains the public key for the specified key

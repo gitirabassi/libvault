@@ -8,6 +8,10 @@ import (
 	"github.com/mitchellh/mapstructure"
 )
 
+const (
+	defaultMountDescription = "Created with libvault"
+)
+
 // Client is a simple yet minimal abstraction over the default api.Client from the original library
 type Client struct {
 	client *api.Client
