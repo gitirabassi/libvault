@@ -8,6 +8,7 @@ import (
 	"github.com/gitirabassi/libvault"
 )
 
+// User is just a fake user-defined struct of data
 type User struct {
 	Nickname   string `mapstructure:"nickname"`
 	Password   string `mapstructure:"password"`
@@ -27,13 +28,18 @@ func main() {
 		Email:      "giacomo@tirabassi.eu",
 		PrivateKey: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
 	}
-	err = cli.KV2("secret").Put("users/giacomo", s)
+	kvengine, err := cli.KV("kv1", false, true)
+	if err != nil {
+		log.Println(err)
+		os.Exit(1)
+	}
+	err = kvengine.Put("users/giacomo", s)
 	if err != nil {
 		log.Println(err)
 		os.Exit(1)
 	}
 	receving := &User{}
-	err = cli.KV2("secret").Get("users/giacomo", receving)
+	err = kvengine.Get("users/giacomo", receving)
 	if err != nil {
 		log.Println(err)
 		os.Exit(1)
