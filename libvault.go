@@ -87,11 +87,11 @@ func (c *Client) listOp(path string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	paths := []string{}
-	for _, key := range list.Keys {
-		paths = append(paths, fmt.Sprintf("%s/%s", path, key))
-	}
-	return paths, nil
+	// paths := []string{}
+	// for _, key := range list.Keys {
+	// 	paths = append(paths, fmt.Sprintf("%s/%s", path, key))
+	// }
+	return list.Keys, nil
 }
 
 func marshalSecret(input interface{}, kv2style bool) (map[string]interface{}, error) {

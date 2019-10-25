@@ -40,18 +40,44 @@ func (c *Client) KV(path string, enableKV2 bool, createIfDoesntExist bool) (*KV,
 
 // Put is a parity funcion with `vault kv put`
 func (k *KV) Put(secretName string, input interface{}) error {
-	secretPath := fmt.Sprintf("%s/data/%s", k.path, secretName)
+	secretPath := ""
+	if k.v2style {
+		secretPath = fmt.Sprintf("%s/data/%s", k.path, secretName)
+	} else {
+		secretPath = fmt.Sprintf("%s/%s", k.path, secretName)
+	}
 	return k.c.writeOp(secretPath, input, nil, k.v2style)
 }
 
-// Get is the parithy function with `vualt kv get` (ONLY HANDLING V2 kv)
+// Get is the parithy function with `vualt kv get`
 func (k *KV) Get(secretName string, output interface{}) error {
-	secretPath := fmt.Sprintf("%s/data/%s", k.path, secretName)
+	secretPath := ""
+	if k.v2style {
+		secretPath = fmt.Sprintf("%s/data/%s", k.path, secretName)
+	} else {
+		secretPath = fmt.Sprintf("%s/%s", k.path, secretName)
+	}
 	return k.c.readOp(secretPath, output, k.v2style)
+}
+
+// List is the parithy function with `vualt kv list`
+func (k *KV) List(secretName string) ([]string, error) {
+	secretPath := ""
+	if k.v2style {
+		secretPath = fmt.Sprintf("%s/data/%s", k.path, secretName)
+	} else {
+		secretPath = fmt.Sprintf("%s/%s", k.path, secretName)
+	}
+	return k.c.listOp(secretPath)
 }
 
 // Delete is the parity function with `vuault kv delete`
 func (k *KV) Delete(secretName string) error {
-	secretPath := fmt.Sprintf("%s/data/%s", k.path, secretName)
+	secretPath := ""
+	if k.v2style {
+		secretPath = fmt.Sprintf("%s/data/%s", k.path, secretName)
+	} else {
+		secretPath = fmt.Sprintf("%s/%s", k.path, secretName)
+	}
 	return k.c.deleteOp(secretPath)
 }
