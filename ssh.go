@@ -39,6 +39,15 @@ func (c *Client) SSH(mountPath string, createIfDoesntExist bool) (*SSH, error) {
 	if err != nil {
 		return nil, err
 	}
+	ssh := &SSH{
+		c:    c,
+		path: mountPath,
+	}
+
+	_, err = ssh.GetPublicKey()
+	if err == nil {
+		return ssh, nil
+	}
 	init := &SSHInit{
 		GenerateSigningKey: true,
 	}
@@ -65,10 +74,7 @@ func (c *Client) SSH(mountPath string, createIfDoesntExist bool) (*SSH, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &SSH{
-		c:    c,
-		path: mountPath,
-	}, nil
+	return ssh, nil
 }
 
 type SSHKeyOutput struct {

@@ -162,7 +162,6 @@ func TestPubKey(t *testing.T) {
 		t.Fail()
 		return
 	}
-
 	pub, err := x509.ParsePKIXPublicKey(block.Bytes)
 	if err != nil {
 		log.Println("Parsing public key:", err)

@@ -23,9 +23,6 @@ func NewClient() (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	cli := &Client{
-		client: vaultClient,
-	}
 	status, err := vaultClient.Sys().InitStatus()
 	if err != nil {
 		return nil, err
@@ -33,7 +30,22 @@ func NewClient() (*Client, error) {
 	if status != true {
 		return nil, fmt.Errorf("Vault not ready yet")
 	}
-	return cli, nil
+	return &Client{
+		client: vaultClient,
+	}, nil
+}
+
+func NewCustomClient(client *api.Client) (*Client, error) {
+	status, err := client.Sys().InitStatus()
+	if err != nil {
+		return nil, err
+	}
+	if status != true {
+		return nil, fmt.Errorf("Vault not ready yet")
+	}
+	return &Client{
+		client: client,
+	}, nil
 }
 
 // GetAPIClient returns the vault api.Client form the original sdk

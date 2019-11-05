@@ -1,0 +1,410 @@
+$vault=<<SCRIPT
+#!/bin/bash
+set -xe
+apt-get update -y
+apt-get install curl jq unzip -y
+
+VAULT_VERSION=1.3.0-beta1
+curl -Ss -L -O https://releases.hashicorp.com/vault/${VAULT_VERSION}/vault_${VAULT_VERSION}_linux_amd64.zip
+unzip vault_${VAULT_VERSION}_linux_amd64.zip -d /usr/local/bin && rm vault_${VAULT_VERSION}_linux_amd64.zip
+
+vault version
+
+sudo cat <<EOF >/etc/systemd/system/vault.service
+[Unit]
+Description=Vault agent for the win
+
+[Service]
+ExecStart=
+ExecStart=/usr/local/bin/vault server -dev -dev-listen-address=192.168.33.10:8200 -dev-root-token-id=toor
+Restart=always
+StartLimitInterval=0
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl enable --now vault
+sleep 5
+export VAULT_ADDR=http://192.168.33.10:8200
+export VAULT_TOKEN=toor
+vault status
+sudo cat <<EOF >/tmp/etcd.hcl
+path "cluster/staging/etcd/issue/*" {
+    capabilities = ["create", "read", "update", "delete", "list"]
+}
+EOF
+
+vault auth enable approle
+vault policy write etcd /tmp/etcd.hcl
+vault write auth/approle/role/test \
+    secret_id_ttl=2h \
+    token_num_uses=10 \
+    token_ttl=20m \
+    token_policies=etcd \
+    token_max_ttl=30m \
+    secret_id_num_uses=40
+vault read auth/approle/role/test/role-id -format=json | jq .data.role_id -r > /vagrant/role_id
+vault write -f auth/approle/role/test/secret-id -format=json | jq .data.secret_id -r > /vagrant/secret_id
+SCRIPT
+
+$etcd=<<SCRIPT
+#!/bin/bash
+set -xe
+apt-get update -y
+apt-get install curl unzip -y
+mkdir -p /etc/etcd/pki
+VAULT_VERSION=1.3.0-beta1
+curl -Ss -L -O https://releases.hashicorp.com/vault/${VAULT_VERSION}/vault_${VAULT_VERSION}_linux_amd64.zip
+unzip vault_${VAULT_VERSION}_linux_amd64.zip -d /usr/local/bin && rm vault_${VAULT_VERSION}_linux_amd64.zip
+
+curl -Ss -L -O https://releases.hashicorp.com/consul-template/0.22.0/consul-template_0.22.0_linux_amd64.zip
+unzip consul-template_0.22.0_linux_amd64.zip -d /usr/local/bin && rm consul-template_0.22.0_linux_amd64.zip
+
+vault version
+export VAULT_ADDR=http://192.168.33.10:8200
+export VAULT_TOKEN=toor
+vault status
+
+mkdir -p /etc/vault
+sudo cat <<EOF >/etc/vault/etcd-server-certificate.hcl
+{{- /* /etc/vault/etcd-server-certificate.hcl */ -}}
+{{ with secret "cluster/staging/etcd/issue/server" "common_name=etcd-1" "ip_sans=192.168.33.12" }}
+{{ .Data.certificate }}{{ end }}
+EOF
+
+sudo cat <<EOF >/etc/vault/etcd-server-key.hcl
+{{- /* /etc/vault/etcd-server-key.hcl */ -}}
+{{ with secret "cluster/staging/etcd/issue/server" "common_name=etcd-1" "ip_sans=192.168.33.12" }}
+{{ .Data.private_key }}{{ end }}
+EOF
+
+sudo cat <<EOF >/etc/vault/etcd-peer-certificate.hcl
+{{- /* /etc/vault/etcd-peer-certificate.hcl */ -}}
+{{ with secret "cluster/staging/etcd/issue/peer" "common_name=etcd-1" "ip_sans=192.168.33.12" }}
+{{ .Data.certificate }}{{ end }}
+EOF
+
+sudo cat <<EOF >/etc/vault/etcd-peer-key.hcl
+{{- /* /etc/vault/etcd-peer-key.hcl */ -}}
+{{ with secret "cluster/staging/etcd/issue/peer" "common_name=etcd-1" "ip_sans=192.168.33.12" }}
+{{ .Data.private_key }}{{ end }}
+EOF
+
+sudo cat <<EOF >/etc/vault/etcd-peer-ca.hcl
+{{- /* /etc/vault/etcd-peer-ca.hcl */ -}}
+{{ with secret "cluster/staging/etcd/issue/peer" "common_name=etcd-1" "ip_sans=192.168.33.12" }}
+{{ .Data.issuing_ca }}{{ end }}
+EOF
+
+sudo cat <<EOF >/etc/vault/ct.hcl
+vault {
+  address = "unix:///var/run/vault_agent.sock"
+}
+template {
+  source = "/etc/vault/etcd-server-key.hcl"
+  destination = "/etc/etcd/pki/server.key"
+  create_dest_dirs = true
+}
+template {
+  source = "/etc/vault/etcd-server-certificate.hcl"
+  destination = "/etc/etcd/pki/server.crt"
+  create_dest_dirs = true
+}
+template {
+  source = "/etc/vault/etcd-peer-certificate.hcl"
+  destination = "/etc/etcd/pki/peer.crt"
+  create_dest_dirs = true
+}
+template {
+  source = "/etc/vault/etcd-peer-key.hcl"
+  destination = "/etc/etcd/pki/peer.key"
+  create_dest_dirs = true
+}
+template {
+  source = "/etc/vault/etcd-peer-ca.hcl"
+  destination = "/etc/etcd/pki/ca.crt"
+  create_dest_dirs = true
+}
+EOF
+
+sudo cat <<EOF >/etc/vault/agent.hcl
+exit_after_auth = false
+pid_file = "/etc/vault/pidfile"
+listener "unix" {
+  address = "/var/run/vault_agent.sock"
+  tls_disable = true
+}
+cache {
+    use_auto_auth_token = true
+}
+auto_auth {
+    method "approle" {
+        mount_path = "auth/approle"
+        config = {
+            role_id_file_path = "/vagrant/role_id"
+            secret_id_file_path = "/vagrant/secret_id"
+            remove_secret_id_file_after_reading = false
+        }
+    }
+}
+EOF
+
+sudo cat <<EOF >/etc/systemd/system/vault_agent.service
+[Unit]
+Description=Vault agent for the win
+
+[Service]
+Environment=VAULT_ADDR=http://192.168.33.10:8200
+ExecStart=
+ExecStart=/usr/local/bin/vault agent --config=/etc/vault/agent.hcl
+Restart=always
+StartLimitInterval=0
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl enable --now vault_agent
+
+sudo cat <<EOF >/etc/systemd/system/ct.service
+[Unit]
+Description=Vault agent for the win
+
+[Service]
+ExecStart=
+ExecStart=/usr/local/bin/consul-template -config "/etc/vault/ct.hcl"
+Restart=always
+StartLimitInterval=0
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl enable --now ct
+
+export ETCD_VER=v3.3.17
+export GITHUB_URL=https://github.com/etcd-io/etcd/releases/download
+curl -L -sS ${GITHUB_URL}/${ETCD_VER}/etcd-${ETCD_VER}-linux-amd64.tar.gz -o /tmp/etcd-${ETCD_VER}-linux-amd64.tar.gz
+tar xzvf /tmp/etcd-${ETCD_VER}-linux-amd64.tar.gz -C /usr/local/bin --strip-components=1
+rm -f /tmp/etcd-${ETCD_VER}-linux-amd64.tar.gz
+
+sudo cat <<EOF >/etc/etcd/runtime.env
+
+EOF
+
+sudo cat <<EOF >/etc/systemd/system/etcd.service
+[Unit]
+Description=etcd
+Documentation=https://github.com/etcd-io/etcd
+Conflicts=etcd-member.service
+Conflicts=etcd2.service
+Wants=network-online.target
+After=network-online.target
+ConditionPathExists=/etc/etcd/runtime.env
+
+[Service]
+EnvironmentFile=/etc/etcd/runtime.env
+ExecStart=
+ExecStart=/usr/local/bin/etcd \
+    --name=etcd-1 \
+    --data-dir=/var/lib/etcd \
+    --proxy=off \
+    --listen-peer-urls=https://192.168.33.12:2380 \
+    --listen-client-urls=https://192.168.33.12:2379 \
+    --initial-advertise-peer-urls=https://192.168.33.12:2380 \
+    --initial-cluster-state=new \
+    --initial-cluster-token=super_secret_token \
+    --advertise-client-urls=https://192.168.33.12:2379 \
+    --cert-file=/etc/etcd/pki/server.crt \
+    --key-file=/etc/etcd/pki/server.key \
+    --client-cert-auth=true \
+    --trusted-ca-file=/etc/etcd/pki/ca.crt \
+    --peer-cert-file=/etc/etcd/pki/peer.crt \
+    --peer-key-file=/etc/etcd/pki/peer.key \
+    --peer-client-cert-auth=true \
+    --peer-trusted-ca-file=/etc/etcd/pki/ca.crt \
+    --metrics=basic \
+    --listen-metrics-urls=http://127.0.0.1:2378
+Type=notify
+TimeoutStartSec=0
+RestartSec=5s
+Restart=always
+LimitNOFILE=40000
+Nice=-10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=2
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+chmod 644 /etc/systemd/system/etcd.service
+systemctl enable --now etcd
+SCRIPT
+
+$client=<<SCRIPT
+#!/bin/bash
+set -xe
+apt-get update -y
+apt-get install curl unzip -y
+mkdir -p /etc/etcd/pki
+VAULT_VERSION=1.3.0-beta1
+curl -Ss -L -O https://releases.hashicorp.com/vault/${VAULT_VERSION}/vault_${VAULT_VERSION}_linux_amd64.zip
+unzip vault_${VAULT_VERSION}_linux_amd64.zip -d /usr/local/bin && rm vault_${VAULT_VERSION}_linux_amd64.zip
+
+curl -Ss -L -O https://releases.hashicorp.com/consul-template/0.22.0/consul-template_0.22.0_linux_amd64.zip
+unzip consul-template_0.22.0_linux_amd64.zip -d /usr/local/bin && rm consul-template_0.22.0_linux_amd64.zip
+
+vault version
+export VAULT_ADDR=http://192.168.33.10:8200
+export VAULT_TOKEN=toor
+vault status
+
+mkdir -p /etc/vault
+sudo cat <<EOF >/etc/vault/etcd-client-certificate.hcl
+{{- /* /etc/vault/etcd-client-certificate.hcl */ -}}
+{{ with secret "cluster/staging/etcd/issue/client" "common_name=etcd-1" }}
+{{ .Data.certificate }}{{ end }}
+EOF
+
+sudo cat <<EOF >/etc/vault/etcd-client-key.hcl
+{{- /* /etc/vault/etcd-client-key.hcl */ -}}
+{{ with secret "cluster/staging/etcd/issue/client" "common_name=etcd-1" }}
+{{ .Data.private_key }}{{ end }}
+EOF
+
+sudo cat <<EOF >/etc/vault/etcd-client-ca.hcl
+{{- /* /etc/vault/etcd-client-ca.hcl */ -}}
+{{ with secret "cluster/staging/etcd/issue/client" "common_name=etcd-1" }}
+{{ .Data.issuing_ca }}{{ end }}
+EOF
+
+sudo cat <<EOF >/etc/vault/ct.hcl
+vault {
+  address = "unix:///var/run/vault_agent.sock"
+}
+template {
+  source = "/etc/vault/etcd-client-certificate.hcl"
+  destination = "/etc/etcd/pki/client.crt"
+  create_dest_dirs = true
+}
+template {
+  source = "/etc/vault/etcd-client-key.hcl"
+  destination = "/etc/etcd/pki/client.key"
+  create_dest_dirs = true
+}
+template {
+  source = "/etc/vault/etcd-client-ca.hcl"
+  destination = "/etc/etcd/pki/ca.crt"
+  create_dest_dirs = true
+}
+EOF
+
+sudo cat <<EOF >/etc/vault/agent.hcl
+exit_after_auth = false
+pid_file = "/etc/vault/pidfile"
+listener "unix" {
+  address = "/var/run/vault_agent.sock"
+  tls_disable = true
+}
+cache {
+    use_auto_auth_token = true
+}
+auto_auth {
+    method "approle" {
+        mount_path = "auth/approle"
+        config = {
+            role_id_file_path = "/vagrant/role_id"
+            secret_id_file_path = "/vagrant/secret_id"
+            remove_secret_id_file_after_reading = false
+        }
+    }
+}
+EOF
+
+sudo cat <<EOF >/etc/systemd/system/vault_agent.service
+[Unit]
+Description=Vault agent for the win
+
+[Service]
+Environment=VAULT_ADDR=http://192.168.33.10:8200
+ExecStart=
+ExecStart=/usr/local/bin/vault agent --config=/etc/vault/agent.hcl
+Restart=always
+StartLimitInterval=0
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl enable --now vault_agent
+
+sudo cat <<EOF >/etc/systemd/system/ct.service
+[Unit]
+Description=Vault agent for the win
+
+[Service]
+ExecStart=
+ExecStart=/usr/local/bin/consul-template -config "/etc/vault/ct.hcl"
+Restart=always
+StartLimitInterval=0
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl enable --now ct
+
+export ETCD_VER=v3.3.17
+export GITHUB_URL=https://github.com/etcd-io/etcd/releases/download
+curl -L -sS ${GITHUB_URL}/${ETCD_VER}/etcd-${ETCD_VER}-linux-amd64.tar.gz -o /tmp/etcd-${ETCD_VER}-linux-amd64.tar.gz
+tar xzvf /tmp/etcd-${ETCD_VER}-linux-amd64.tar.gz -C /usr/local/bin --strip-components=1
+rm -f /tmp/etcd-${ETCD_VER}-linux-amd64.tar.gz
+
+sudo cat <<EOF >/etc/profile.d/etcdctl.sh
+export ETCDCTL_API=3
+export ETCDCTL_CACERT=/etc/etcd/pki/ca.crt
+export ETCDCTL_CERT=/etc/etcd/pki/client.crt
+export ETCDCTL_KEY=/etc/etcd/pki/client.key
+export ETCDCTL_DIAL_TIMEOUT=3s
+export ETCDCTL_ENDPOINTS=https://192.168.33.12:2379
+EOF
+
+SCRIPT
+
+Vagrant.configure(2) do |config|
+    config.vm.define "vault" do |vault|
+        vault.vm.box = "ubuntu/bionic64"
+        vault.vm.hostname = "vault"
+        vault.vm.network :private_network, ip: "192.168.33.10"
+        vault.vm.provider "virtualbox" do |vb|
+        vb.customize ["modifyvm", :id, "--memory", "1024"]
+        end
+        vault.vm.provision :shell, inline: $vault
+    end
+
+    config.vm.define "etcd" do |etcd|
+        etcd.vm.box = "ubuntu/bionic64"
+        etcd.vm.hostname = "etcd"
+        etcd.vm.network :private_network, ip: "192.168.33.12"
+        etcd.vm.provider "virtualbox" do |vb|
+        vb.customize ["modifyvm", :id, "--memory", "1024"]
+        end
+        etcd.vm.provision :shell, inline: $etcd
+    end
+    config.vm.define "client" do |client|
+      client.vm.box = "ubuntu/bionic64"
+      client.vm.hostname = "client"
+      client.vm.network :private_network, ip: "192.168.33.14"
+      client.vm.provider "virtualbox" do |vb|
+      vb.customize ["modifyvm", :id, "--memory", "1024"]
+      end
+      client.vm.provision :shell, inline: $client
+  end
+end
