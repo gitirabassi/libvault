@@ -16,7 +16,9 @@ Easy things should be easy
 
 ## Usage
 
-- [Kv](examples/kv/main.go)
+- [KV](examples/kv/main.go)
+- [SSH](examples/ssh/README.md)
+- [PKI](examples/pki/README.md)
 
 
 ## Testing
